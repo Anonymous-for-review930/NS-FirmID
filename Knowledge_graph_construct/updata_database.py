@@ -1,8 +1,3 @@
-#!/usr/bin/env python
-# -*- coding:utf-8 -*-
-# @FileName  :updata_database.py
-# @Time      :2025/11/17 23:44
-# @Author    :zfs
 import json
 import os.path
 
