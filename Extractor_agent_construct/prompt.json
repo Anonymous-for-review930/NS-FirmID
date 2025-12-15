@@ -1,0 +1,434 @@
+simplest_prompt_for_test = """
+You will be given a network banner. Your task is to provide a response in two parts:
+1.  An `<analysis>` block explaining your step-by-step reasoning for finding the information.
+2.  A `<results>` block containing your final JSON object.
+
+The JSON object must have these exact keys:
+* `brand` (The manufacturer)
+* `model` (The device model)
+* `firmware_version` (The software version)
+
+The value for each key must be the exact string from the banner.
+If a value cannot be found, use `null`.
+
+Provide **only** the `<analysis>` block followed by the `<results>` block containing final JSON object. STOP immediately after closing </results> tag. 
+
+* **[BANNER]**: `{{BANNER}}`
+"""
+
+
+prompt_for_teacher_model = """
+You are an expert in IoT network security and firmware analysis. You will analyze network device banners and extract structured information with confidence scores.
+
+## YOUR TASK
+Analyze the given banner and extract information following these steps:
+
+### STEP 1: IDENTIFICATION
+First, read through the entire banner carefully and identify:
+- Potential brand/manufacturer mentions
+- Potential model numbers or product names
+- Version numbers and their types (firmware, OS, component, web server,...)
+- Any labeled fields (e.g., "Version:", "Build:", "Server:")
+
+### STEP 2: REASONING PROCESS
+For each field (brand, model, firmware_version, os, web_server, sdk), explain:
+1. **Why the text you found matches the field** (contextual clues, positioning, format)
+2. **Why you assigned this confidence score** (explicitness, ambiguity, inference strength)
+3. Noted: **Be concise**: 2-3 sentences per field. **Focus on KEY evidence**: Skip obvious explanation
+
+### STEP 3: CONFIDENCE ASSESSMENT
+Evaluate confidence based on:
+- **0.95-0.99**: Explicitly labeled (e.g., "Firmware: X", "Model: Y")
+- **0.75-0.94**: Strong context (near keywords like "version", "build", standard format)
+- **0.50-0.74**: Moderate inference (reasonable position/format)
+- **0.25-0.49**: Weak evidence (ambiguous)
+- **0.00-0.24**: Generic terms or null
+
+### STEP 4: VALIDATION
+Check that:
+- Brand, model, and firmware_version are NOT identical
+- Extracted values exactly match banner text (character-for-character)
+- Null values have confidence 0.0
+
+## OUTPUT FORMAT
+
+Provide your analysis in this structure:
+
+<analysis>
+<brand_reasoning>
+[Your step-by-step reasoning]
+</brand_reasoning>
+
+<model_reasoning>
+[Your step-by-step reasoning with exact quotes]
+</model_reasoning>
+
+<firmware_version_reasoning>
+[Your step-by-step reasoning with exact quotes]
+</firmware_version_reasoning>
+
+<os_reasoning>
+[Your step-by-step reasoning with exact quotes]
+</os_reasoning>
+
+<web_server_reasoning>
+[Your step-by-step reasoning with exact quotes]
+</web_server_reasoning>
+
+<sdk_reasoning>
+[Your step-by-step reasoning with exact quotes]
+</sdk_reasoning>
+</analysis>
+
+<results>
+```json
+{
+  "brand": {"value": "...", "confidence": 0.0},
+  "model": {"value": "...", "confidence": 0.0},
+  "firmware_version": {"value": "...", "confidence": 0.0},
+  "component_versions": {
+    "os": {"value": "...", "confidence": 0.0},
+    "web_server": {"value": "...", "confidence": 0.0},
+    "sdk": {"value": "...", "confidence": 0.0}
+  }
+}
+```
+</results>
+
+## NOW ANALYZE THIS BANNER
+
+**[BANNER]**: `{{BANNER}}`
+
+Remember:
+1. Show your complete reasoning process step-by-step
+2. Quote exact text from the banner
+3. Explain confidence score rationale
+4. Ensure extracted values exactly match banner text
+5. Validate brand ≠ model ≠ firmware_version ≠ os ≠ web_server ≠ sdk
+                                                                     
+"""
+
+
+
+verify_with_knowledge_base_1127 = """
+## **1. ROLE**
+You are an expert in IoT firmware analysis and versioning conventions.  
+Your task is to **refine** the firmware version extraction by **learning version naming patterns** from trusted external knowledge, while fully respecting the raw banner text.
+
+## **2. INPUTS**
+### **Primary Evidence: Raw Banner**
+This is the only real source of facts:
+[BANNER]:
+`{{BANNER}}`
+
+### **Neural Prior: First-round Extraction Results**
+This reflects your previous reasoning and extracted candidates:
+[FIRST EXTRACTION]:
+```json
+{{FIRST_EXTRACTION_JSON}}
+```
+
+### Symbolic Knowledge: Version Pattern Learning
+Do NOT output any version only seen here without appearing in the banner.
+Study version naming patterns:
+[KNOWN_FIRMWARE_VERSIONS]:
+{{KNOWN_VERSION_LIST}}
+
+## **3. TASK DESCRIPTION**
+You have previously extracted candidate fields from the [BANNER], [FIRST EXTRACTION] is your first-round output.  
+Now you will **re-evaluate the answers, especially firmware version**, using the provided [KNOWN_FIRMWARE_VERSIONS] to:
+1. Learn version pattern rules of [KNOWN_FIRMWARE_VERSIONS] (e.g., arrangement patterns of letters and numbers, number of segments, separators, prefix style, ...)
+2. Compare candidate strings in the [BANNER] with learned version patterns
+3. First-round extraction maybe incorrect or omitted, you need to rethink the correct answer based on [BANNER] and [KNOWN_FIRMWARE_VERSIONS]
+4. Increase confidence ONLY if the banner contains:
+- Exact match to a known version → **Strong Confidence Increase**
+- A new version that fits the learned pattern → **Moderate Confidence Increase**
+- Strings inconsistent with pattern → **Lower confidence or Null**
+5.  **IMPORTANT!!** Do not use the example version in [KNOWN_FIRMWARE_VERSIONS] as your output, unless the example appears in the [BANNER].
+
+## **4. CONFIDENCE UPDATE GUIDELINES**
+| Condition | Confidence Range |
+|----------|-----------------|
+| Exact match to knowledge entry | **0.95–0.99** |
+| Consistent with pattern but unseen | **0.70–0.89** |
+| Weak alignment / partial match | **0.25–0.60** |
+| No alignment | **0.00–0.24** |
+
+---
+
+## **5. OUTPUT FORMAT (STRICT)**
+Keep the structure **identical** to the first extraction.
+
+<analysis>
+<brand_reasoning>
+[...]
+</brand_reasoning>
+
+<model_reasoning>
+[...]
+</model_reasoning>
+
+<firmware_version_reasoning>
+- Quote EXACT substrings from banner
+- Compare with FIRST extraction result
+- Reference version pattern from KNOWN versions
+- Explain why confidence increases/decreases
+</firmware_version_reasoning>
+
+<os_reasoning>
+[...]
+</os_reasoning>
+
+<web_server_reasoning>
+[...]
+</web_server_reasoning>
+
+<sdk_reasoning>
+[...]
+</sdk_reasoning>
+</analysis>
+
+<results>
+```json
+{
+  "brand": {
+    "value": "extracted_brand_or_null",
+    "confidence": 0.0
+  },
+  "model": {
+    "value": "extracted_model_or_null",
+    "confidence": 0.0
+  },
+  "firmware_version": {
+    "value": "extracted_firmware_or_null",
+    "confidence": 0.0
+  },
+  "component_versions": {
+    "os": {
+      "value": "extracted_os_or_null",
+      "confidence": 0.0
+    },
+    "web_server": {
+      "value": "extracted_webserver_or_null",
+      "confidence": 0.0
+    },
+    "sdk": {
+      "value": "extracted_sdk_or_null",
+      "confidence": 0.0
+    }
+  }
+}
+```
+</results>
+
+## 6. IMPORTANT CONSTRAINTS
+- Do NOT hallucinate new versions
+- Do NOT copy versions from knowledge unless banner contains them
+- STOP immediately after the </results> tag
+- MUST NOT repeat placeholder fields
+
+"""
+
+
+
+confidence_detail_analysis_1105 = """
+## **1. ROLE**
+You are an expert in IoT network security and firmware analysis. Your task is to accurately analyze a network device banner and extract key information into a precise, structured JSON format, including confidence scores for each extracted piece of information.
+
+## **2. TASK DESCRIPTION**
+You will be given a raw network device banner. Your goal is to analyze this banner and extract all identifiable information. The output must be a JSON object where each field is an object containing both a **`value`** (the extracted string) and a **`confidence`** score (a float between 0.0 and 1.0).
+
+## **3. OUTPUT FORMAT (CRITICAL - FOLLOW EXACTLY)**
+
+Your response MUST have this EXACT structure:
+
+<analysis>
+<brand_reasoning>
+[Your reasoning for brand extraction]
+</brand_reasoning>
+
+<model_reasoning>
+[Your reasoning for model extraction - BE SPECIFIC, cite exact text from banner]
+</model_reasoning>
+
+<firmware_version_reasoning>
+[Your reasoning for firmware version extraction - BE SPECIFIC, cite exact text from banner]
+</firmware_version_reasoning>
+
+<os_reasoning>
+[Your reasoning for OS version extraction - BE SPECIFIC, cite exact text from banner]
+</os_reasoning>
+
+<web_server_reasoning>
+[Your reasoning for web server extraction - BE SPECIFIC, cite exact text from banner]
+</web_server_reasoning>
+
+<sdk_reasoning>
+[Your reasoning for SDK extraction - BE SPECIFIC, cite exact text from banner]
+</sdk_reasoning>
+</analysis>
+
+<results>
+```json
+{
+  "brand": {
+    "value": "extracted_brand_or_null",
+    "confidence": 0.0
+  },
+  "model": {
+    "value": "extracted_model_or_null",
+    "confidence": 0.0
+  },
+  "firmware_version": {
+    "value": "extracted_firmware_or_null",
+    "confidence": 0.0
+  },
+  "component_versions": {
+    "os": {
+      "value": "extracted_os_or_null",
+      "confidence": 0.0
+    },
+    "web_server": {
+      "value": "extracted_webserver_or_null",
+      "confidence": 0.0
+    },
+    "sdk": {
+      "value": "extracted_sdk_or_null",
+      "confidence": 0.0
+    }
+  }
+}
+```
+</results>
+
+## **4. EXTRACTION RULES**
+
+### **Definitions:**
+* **`firmware_version`**: The official version of the entire software package released by the manufacturer.
+* **`component_versions`**: Versions of individual software components within the firmware (e.g., `os`, `web_server`, `sdk`).
+
+### **Processing Rules:**
+1. **Exactness**: The extracted `value` string MUST be identical to its appearance in the banner.
+2. **Uniqueness**: The `value` for brand, model, and firmware_version should not be identical.
+3. **Handle Nulls**: If information cannot be found, use `"value": null` and `"confidence": 0.0`.
+4. **Each reasoning block MUST**:
+   - Quote the exact text from the banner if extracting a value
+   - Explain why you chose that specific confidence score
+   - If value is null, explain what you looked for but didn't find
+
+### **Confidence Scoring Guidelines:**
+* **0.95-0.99**: Explicitly labeled (e.g., "Firmware Version: X", "Model: Y")
+* **0.75-0.94**: Strong contextual evidence (appears near "version", "build", "v=", standard format)
+* **0.50-0.74**: Moderate evidence (reasonable inference from position/format), but no obvious clue
+* **0.25-0.49**: Weak evidence (ambiguous, could be something else)
+* **0.00-0.24**: Generic/stopword or null value
+
+**DO NOT use confidence 1.0 unless 100% certain.**
+
+## **5. YOUR TASK**
+
+Analyze the following banner following ALL rules above. Provide ONLY the <analysis> and <results> blocks with actual analysis and valid JSON.
+
+**[BANNER]**: `{{BANNER}}`
+
+IMPORTANT: 
+- Do NOT write placeholder text like "your analysis goes here"
+- Do NOT repeat the JSON structure multiple times
+- STOP immediately after closing </results> tag
+- Each reasoning block must contain ACTUAL analysis with quotes from the banner
+"""
+
+
+
+
+
+
+prompt_for_teacher_model_with_gt_optimized = """
+You are an expert in IoT network security and firmware analysis acting as a **Teacher Model**.
+Your goal is to generate high-quality **Chain-of-Thought (CoT)** reasoning to teach a Student Model how to extract information correctly.
+
+## INPUT DATA
+1. **[BANNER]**: Raw network device banner.
+2. **[GROUND TRUTH]**: Verified labels for **Brand, Model, and Firmware Version ONLY**.
+
+## YOUR TASK
+Perform **Reverse-Engineering** for known fields and **Active Extraction** for unknown fields.
+
+### STEP 1: VERIFICATION & EXTRACTION
+1. **For Brand, Model, Firmware (Mandatory match GT)**:
+   - Locate the *exact substring* in the banner that matches the [GROUND TRUTH].
+   - Identify context clues (e.g., "Server:", "v1.2").
+   - **If GT is NULL**: Verify the absence of info and **explain why potential distractors were rejected** (e.g., why an OS version wasn't mistaken for Firmware).
+2. **For Components (OS, Web, SDK)**:
+   - Actively search the banner. Extract only if high confidence. Otherwise, set to null.
+
+### STEP 2: GENERATE REASONING (CoT)
+Write a structured `<analysis>` block. For each field:
+- **Quote exact text** from the banner.
+- **Logic**: Explain *why* this token is the specific field.
+- **Distractors**: Explicitly rule out confusing terms (e.g., "Apache is the web server, not the firmware").
+- **Confidence**: Assign a score based on the guidelines below.
+
+### STEP 3: CONFIDENCE GUIDELINES
+- **0.95-1.00**: Explicit labels ("Model: X") or unique identifiers like "firmware".
+- **0.75-0.94**: Strong context ("version", "build", standard format).
+- **0.50-0.74**: Moderate inference (position/format), no obvious clue.
+- **0.00-0.24**: Ambiguous, generic, or **Null**.
+
+### STEP 4: FINAL OUTPUT RULES
+- **Brand/Model/Firmware**: Values MUST EXACTLY match [GROUND TRUTH].
+- **Components**: Values are based on your extraction.
+- **Nulls**: Must have confidence 0.0.
+
+## OUTPUT STRUCTURE
+
+<analysis>
+<brand_reasoning>
+[Reasoning for Brand. If GT is null, explain why.]
+</brand_reasoning>
+<model_reasoning>
+[Reasoning for Model.]
+</model_reasoning>
+<firmware_version_reasoning>
+[Reasoning for Firmware. CRITICAL: Explain why OS/Web versions were NOT chosen if FW is null.]
+</firmware_version_reasoning>
+<os_reasoning>
+[Evidence for OS.]
+</os_reasoning>
+<web_server_reasoning>
+[Evidence for Web Server.]
+</web_server_reasoning>
+<sdk_reasoning>
+[Evidence for SDK.]
+</sdk_reasoning>
+</analysis>
+
+<results>
+```json
+{
+  "brand": {"value": "...", "confidence": 0.0},
+  "model": {"value": "...", "confidence": 0.0},
+  "firmware_version": {"value": "...", "confidence": 0.0},
+  "component_versions": {
+    "os": {"value": "...", "confidence": 0.0},
+    "web_server": {"value": "...", "confidence": 0.0},
+    "sdk": {"value": "...", "confidence": 0.0}
+  }
+}
+```
+</results>
+
+# START ANALYSIS
+**[BANNER]**: `{{BANNER}}`
+**[GROUND TRUTH]**: `{{GROUND_TRUTH_JSON}}`
+
+Remember:
+1. Your reasoning must explain evidence found in the [BANNER] that supports your answer.
+2. If GT or component version is null, your reasoning must state that the information is missing from the text. 
+3. Remember your are a teacher, so do not contain text like "Ground Truth" in your reasoning. DO NOT use confidence > 0.95 unless 100% certain.
+"""
+
+
+
+
+
