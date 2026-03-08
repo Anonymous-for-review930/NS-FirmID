@@ -1,0 +1,1 @@
+This section provides detailed documentation for the supplementary experiments added during the DSN 2026 rebuttal phase. These experiments specifically address reviewer concerns regarding operational efficiency, adversarial robustness, and performance across heterogeneous network environments.
